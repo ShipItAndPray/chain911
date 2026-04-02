@@ -103,7 +103,7 @@ module.exports = protect(async function(req, res) {
     for (const a of alerts.filter(x => x.status === 'resolved')) {
       for (const t of teams) {
         if (Math.random() > 0.2) {
-          const action = Math.random() > 0.3 ? 'pause' : Math.random() > 0.5 ? 'ack' : 'ignore');
+          const action = Math.random() > 0.3 ? 'pause' : Math.random() > 0.5 ? 'ack' : 'ignore';
           const decId = 'd_' + a.id + '_' + t[0];
           const decidedAt = new Date(new Date(a.date).getTime() + Math.random() * 1800000).toISOString();
           await sql`INSERT INTO decisions (id,alert_id,team_id,team_name,action,decided_at)
