@@ -458,32 +458,35 @@ function initSubmit() {
 
     if (!address || !description) { toast('Address and description required', 'error'); return; }
 
-    const alert = await db.createAlert({ reporterId, address, chain, evidenceUrl: evidenceUrl, description, severity });
-
-    // Dispatch animation
     const area = document.getElementById('dispatch-area');
-    area.innerHTML = '<div class="dispatch-log" id="dispatch-log"></div>';
+    area.innerHTML = '<div class="dispatch-log" id="dispatch-log"><div class="dispatch-item"><span class="dispatch-pending">\u25CF</span> Submitting alert and dispatching webhooks...</div></div>';
+
+    const result = await db.createAlert({ reporterId, address, chain, evidenceUrl: evidenceUrl, description, severity });
     const log = document.getElementById('dispatch-log');
-    const webhooks = db.getWebhooks().filter(w => w.enabled);
 
-    log.innerHTML = '<div class="dispatch-item"><span class="dispatch-pending">\u25CF</span> Enriching address data...</div>';
+    if (result.success) {
+      log.innerHTML = '<div class="dispatch-item"><span class="dispatch-check">\u2713</span> Alert saved to database</div>';
+      log.innerHTML += '<div class="dispatch-item"><span class="dispatch-check">\u2713</span> Address enrichment attached</div>';
 
-    setTimeout(() => {
-      log.innerHTML = '<div class="dispatch-item"><span class="dispatch-check">\u2713</span> Enrichment complete — flagged address data attached</div>';
+      // Show real webhook delivery results from the server
+      if (result.webhooks && result.webhooks.length > 0) {
+        result.webhooks.forEach(wh => {
+          const icon = wh.status === 'delivered' ? '\u2713' : '\u2717';
+          const cls = wh.status === 'delivered' ? 'dispatch-check' : '';
+          log.innerHTML += `<div class="dispatch-item"><span class="${cls}">${icon}</span> ${wh.type}: ${wh.status}${wh.error ? ' — ' + wh.error : ''}</div>`;
+        });
+      } else {
+        log.innerHTML += '<div class="dispatch-item" style="color:var(--text-muted)">No webhooks configured. Add channels in Settings.</div>';
+      }
 
-      webhooks.forEach((wh, i) => {
-        setTimeout(() => {
-          log.innerHTML += `<div class="dispatch-item"><span class="dispatch-check">\u2713</span> ${wh.type} — delivered</div>`;
-          if (i === webhooks.length - 1) {
-            setTimeout(() => {
-              log.innerHTML += `<div class="dispatch-item" style="color:var(--accent-green);font-weight:600">\u2713 Alert broadcast to ${webhooks.length} channels. All teams notified.</div>`;
-              toast('Alert submitted and broadcast', 'success');
-              setTimeout(() => { window.location.hash = '#/alert/' + alert.id; }, 1500);
-            }, 600);
-          }
-        }, 500 * (i + 1));
-      });
-    }, 800);
+      log.innerHTML += '<div class="dispatch-item" style="color:var(--accent-green);font-weight:600">\u2713 Alert broadcast complete.</div>';
+      toast('Alert submitted', 'success');
+
+      setTimeout(() => { window.location.hash = '#/alert/' + result.id; }, 1500);
+    } else {
+      log.innerHTML = '<div class="dispatch-item" style="color:var(--accent-red)">\u2717 Failed: ' + (result.error || 'Unknown error') + '</div>';
+      toast('Alert submission failed', 'error');
+    }
   });
 }
 

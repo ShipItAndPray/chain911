@@ -1,7 +1,7 @@
 // Rate limiting + API key validation middleware
 // No auth for reads (GET), rate limit + optional API key for writes (POST/PATCH)
 
-const { getDb } = require('./db.js');
+
 
 // In-memory rate limit store (resets on cold start, good enough for serverless)
 const rateLimits = {};
