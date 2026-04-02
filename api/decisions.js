@@ -1,6 +1,7 @@
+const { protect } = require('./middleware.js');
 const { getDb } = require('./db.js');
 
-module.exports = async function(req, res) {
+module.exports = protect(async function(req, res) {
   const sql = getDb();
 
   if (req.method === 'POST') {
@@ -28,3 +29,4 @@ module.exports = async function(req, res) {
 
   return res.status(405).json({ error: 'Method not allowed' });
 }
+, { ratePerMinute: 10 });

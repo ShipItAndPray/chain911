@@ -1,6 +1,7 @@
 const { getDb } = require('./db.js');
+const { protect } = require('./middleware.js');
 
-module.exports = async function(req, res) {
+module.exports = protect(async function(req, res) {
   const sql = getDb();
   const { type, search, limit } = req.query;
   const max = Math.min(parseInt(limit) || 100, 500);
@@ -18,4 +19,4 @@ module.exports = async function(req, res) {
 
   const log = await sql.query(query, params);
   return res.status(200).json(log);
-}
+}, { ratePerMinute: 30 });

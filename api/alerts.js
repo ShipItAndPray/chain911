@@ -1,6 +1,8 @@
 const { getDb } = require('./db.js');
+const { dispatchAlert } = require('./webhooks.js');
+const { protect } = require('./middleware.js');
 
-module.exports = async function(req, res) {
+module.exports = protect(async function(req, res) {
   const sql = getDb();
 
   if (req.method === 'GET') {
@@ -57,13 +59,18 @@ module.exports = async function(req, res) {
       const actorName = reporter[0]?.handle || 'Unknown';
       await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('alert_created',${id},${actorName},${severity.toUpperCase()+' on '+chain})`;
       await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('enrichment_done',${id},'system','Auto-enrichment complete')`;
-      await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('webhook_sent',${id},'system','Dispatched to 3 channels')`;
 
-      return res.status(201).json({ id, success: true });
+      // Dispatch to real webhooks
+      const webhookResults = await dispatchAlert(sql, {
+        id, severity, chain, address, description, amount: null,
+        reporter: actorName, evidence_url
+      });
+
+      return res.status(201).json({ id, success: true, webhooks: webhookResults });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
   }
 
   return res.status(405).json({ error: 'Method not allowed' });
-}
+}, { ratePerMinute: 5 });

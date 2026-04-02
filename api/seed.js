@@ -1,6 +1,7 @@
+const { protect } = require('./middleware.js');
 const { getDb, initTables } = require('./db.js');
 
-module.exports = async function(req, res) {
+module.exports = protect(async function(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   const sql = getDb();
 
@@ -112,13 +113,11 @@ module.exports = async function(req, res) {
       }
     }
 
-    // Webhooks
-    await sql`INSERT INTO webhooks (id,team_id,type,url,enabled) VALUES ('w1','t3','Slack','https://hooks.slack.com/services/XXX',true) ON CONFLICT DO NOTHING`;
-    await sql`INSERT INTO webhooks (id,team_id,type,url,enabled) VALUES ('w2','t3','Telegram','https://api.telegram.org/botXXX/send',true) ON CONFLICT DO NOTHING`;
-    await sql`INSERT INTO webhooks (id,team_id,type,url,enabled) VALUES ('w3','t3','PagerDuty','https://events.pagerduty.com/v2/enqueue',true) ON CONFLICT DO NOTHING`;
+    // No placeholder webhooks — users configure real ones via Settings page
 
     res.status(200).json({ success: true, message: 'Seeded 11 real exploits ($2.3B+), 8 reporters, 6 teams' });
   } catch (error) {
     res.status(500).json({ error: error.message, stack: error.stack });
   }
 }
+, { ratePerMinute: 1, requireAuth: true });

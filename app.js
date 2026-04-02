@@ -841,17 +841,32 @@ async function renderSettings() {
           <span style="font-size:11px;color:var(--text-muted)">${webhooks.filter(w => w.enabled).length} active</span>
         </div>
 
+        ${webhooks.length === 0 ? '<div style="padding:16px 0;color:var(--text-muted);font-size:12px">No webhooks configured. Add one below to receive real-time alerts.</div>' : ''}
         ${webhooks.map(wh => `
           <div class="webhook-row">
             <span class="webhook-type">${wh.type}</span>
             <span class="webhook-url">${wh.url}</span>
-            <button class="toggle ${wh.enabled ? 'on' : ''}" data-webhook-id="${wh.id}" onclick="toggleWebhook('${wh.id}')"></button>
-            <button class="btn btn-ghost btn-sm" onclick="testWebhook('${wh.type}')">Test</button>
+            <button class="toggle ${wh.enabled ? 'on' : ''}" onclick="toggleWebhook('${wh.id}')"></button>
+            <button class="btn btn-ghost btn-sm" onclick="testWebhookReal('${wh.id}')">Test</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteWebhook('${wh.id}')">x</button>
           </div>
         `).join('')}
 
-        <div style="margin-top:12px">
-          <button class="btn btn-ghost btn-sm">\u002B Add Channel</button>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px">ADD NEW CHANNEL</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="form-select" id="new-wh-type" style="width:120px">
+              <option value="Slack">Slack</option>
+              <option value="Telegram">Telegram</option>
+              <option value="PagerDuty">PagerDuty</option>
+              <option value="Generic">Generic</option>
+            </select>
+            <input class="form-input mono" id="new-wh-url" placeholder="Webhook URL" style="flex:1" />
+            <button class="btn btn-primary btn-sm" onclick="addWebhook()">Add</button>
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:6px">
+            Slack: Incoming Webhook URL | Telegram: Bot API sendMessage endpoint | PagerDuty: Events API v2 URL
+          </div>
         </div>
       </div>
 
@@ -888,8 +903,48 @@ window.toggleWebhook = async function(id) {
   route();
 };
 
-window.testWebhook = function(type) {
-  toast(`Test sent to ${type} — delivered successfully`, 'success');
+window.testWebhookReal = async function(id) {
+  toast('Sending test...', 'info');
+  try {
+    const res = await fetch('/api/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'test', id })
+    });
+    const result = await res.json();
+    if (result.status === 'delivered') {
+      toast(`Test delivered to ${result.type}`, 'success');
+    } else {
+      toast(`Test failed: ${result.error || 'Unknown error'}`, 'error');
+    }
+  } catch (e) { toast('Test failed: ' + e.message, 'error'); }
+};
+
+window.addWebhook = async function() {
+  const type = document.getElementById('new-wh-type').value;
+  const url = document.getElementById('new-wh-url').value.trim();
+  if (!url) { toast('URL required', 'error'); return; }
+  try {
+    await fetch('/api/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'add', type, url })
+    });
+    toast(`${type} webhook added`, 'success');
+    route();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.deleteWebhook = async function(id) {
+  try {
+    await fetch('/api/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id })
+    });
+    toast('Webhook deleted', 'success');
+    route();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
 };
 
 // ===== UTC CLOCK =====
