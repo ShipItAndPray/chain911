@@ -1,6 +1,6 @@
-import { getDb } from './db.js';
+const { getDb } = require('./db.js');
 
-export default async function handler(req, res) {
+module.exports = async function(req, res) {
   const sql = getDb();
 
   if (req.method === 'POST') {

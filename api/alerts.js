@@ -1,11 +1,11 @@
-import { getDb } from './db.js';
+const { getDb } = require('./db.js');
 
-export default async function handler(req, res) {
+module.exports = async function(req, res) {
   const sql = getDb();
 
   if (req.method === 'GET') {
     const { chain, severity, status, search } = req.query;
-    let query = 'SELECT a.*, r.handle as reporter_handle, r.color as reporter_color, r.total_alerts as reporter_total, r.confirmed_alerts as reporter_confirmed, r.false_positives as reporter_fp FROM alerts a LEFT JOIN reporters r ON a.reporter_id = r.id WHERE 1=1';
+    let query = 'SELECT a.*, r.handle as reporter_handle, r.color as reporter_color, r.total_alerts as reporter_total, r.confirmed_alerts as reporter_confirmed, r.false_positives as reporter_fp FROM alerts a LEFT JOIN reporters r ON a.reporter_id = r.id WHERE 1=1');
     const params = [];
     let idx = 1;
 
@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     if (status) { query += ` AND a.status = $${idx++}`; params.push(status); }
     if (search) { query += ` AND (a.address ILIKE $${idx} OR a.description ILIKE $${idx})`; params.push('%' + search + '%'); idx++; }
 
-    query += ' ORDER BY a.created_at DESC';
+    query += ' ORDER BY a.created_at DESC');
     const alerts = await sql(query, params);
 
     // Get decisions for each alert

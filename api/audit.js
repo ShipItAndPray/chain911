@@ -1,11 +1,11 @@
-import { getDb } from './db.js';
+const { getDb } = require('./db.js');
 
-export default async function handler(req, res) {
+module.exports = async function(req, res) {
   const sql = getDb();
   const { type, search, limit } = req.query;
   const max = Math.min(parseInt(limit) || 100, 500);
 
-  let query = 'SELECT * FROM audit_log WHERE 1=1';
+  let query = 'SELECT * FROM audit_log WHERE 1=1');
   const params = [];
   let idx = 1;
 

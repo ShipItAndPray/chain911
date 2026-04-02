@@ -1,10 +1,10 @@
-import { neon } from '@neondatabase/serverless';
+const { neon } = require('@neondatabase/serverless');
 
-export function getDb() {
+function getDb() {
   return neon(process.env.DATABASE_URL);
 }
 
-export async function initTables(sql) {
+async function initTables(sql) {
   await sql`CREATE TABLE IF NOT EXISTS reporters (
     id VARCHAR(10) PRIMARY KEY, handle VARCHAR(100) NOT NULL, role VARCHAR(100),
     color VARCHAR(10), total_alerts INT DEFAULT 0, confirmed_alerts INT DEFAULT 0,
@@ -34,3 +34,5 @@ export async function initTables(sql) {
     url TEXT NOT NULL, enabled BOOLEAN DEFAULT true
   )`;
 }
+
+module.exports = { getDb, initTables };
