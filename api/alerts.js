@@ -2,6 +2,45 @@ const { getDb } = require('./db.js');
 const { dispatchAlert } = require('./webhooks.js');
 const { protect } = require('./middleware.js');
 
+// Import enrichment functions for async enrichment after alert creation
+let enrichEthereum, enrichSolana;
+try {
+  const enrich = require('./enrich.js');
+  enrichEthereum = enrich.enrichEthereum;
+  enrichSolana = enrich.enrichSolana;
+} catch (_) {
+  // Gracefully handle if enrich module not available
+  enrichEthereum = null;
+  enrichSolana = null;
+}
+
+// Fire-and-forget enrichment: fetches real data and updates the alert row
+async function asyncEnrich(alertId, address, chain) {
+  try {
+    const chainUpper = (chain || 'ETH').toUpperCase();
+    let enrichment;
+
+    if ((chainUpper === 'SOL' || chainUpper === 'SOLANA') && enrichSolana) {
+      enrichment = await enrichSolana(address);
+    } else if (enrichEthereum) {
+      enrichment = await enrichEthereum(address);
+    } else {
+      return; // No enrichment functions available
+    }
+
+    enrichment.enrichedAt = new Date().toISOString();
+
+    const sql = getDb();
+    await sql.query(
+      'UPDATE alerts SET enrichment = $1::jsonb WHERE id = $2',
+      [JSON.stringify(enrichment), alertId]
+    );
+  } catch (err) {
+    // Enrichment failure should never block alert creation — log and move on
+    console.error('Async enrichment failed for alert ' + alertId + ':', err.message);
+  }
+}
+
 module.exports = protect(async function(req, res) {
   const sql = getDb();
 
@@ -58,13 +97,16 @@ module.exports = protect(async function(req, res) {
       const reporter = await sql`SELECT handle FROM reporters WHERE id=${reporter_id}`;
       const actorName = reporter[0]?.handle || 'Unknown';
       await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('alert_created',${id},${actorName},${severity.toUpperCase()+' on '+chain})`;
-      await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('enrichment_done',${id},'system','Auto-enrichment complete')`;
+      await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('enrichment_done',${id},'system','Auto-enrichment started')`;
 
       // Dispatch to real webhooks
       const webhookResults = await dispatchAlert(sql, {
         id, severity, chain, address, description, amount: null,
         reporter: actorName, evidence_url
       });
+
+      // Fire-and-forget: enrich asynchronously (don't await — response returns immediately)
+      asyncEnrich(id, address, chain).catch(() => {});
 
       return res.status(201).json({ id, success: true, webhooks: webhookResults });
     } catch (err) {

@@ -389,6 +389,87 @@ function initDashboard() {
     const el = document.getElementById(id);
     if (el) el.addEventListener(id === 'dash-search' ? 'input' : 'change', applyFilters);
   });
+
+  // Load analytics section
+  loadAnalyticsSection();
+}
+
+async function loadAnalyticsSection() {
+  const section = document.getElementById('analytics-section');
+  if (!section) return;
+
+  try {
+    const res = await fetch('/api/analytics');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load analytics');
+
+    const maxChainCount = Math.max(...Object.values(data.byChain), 1);
+    const chainBars = Object.entries(data.byChain)
+      .sort(([,a], [,b]) => b - a)
+      .map(([chain, count]) => {
+        const pct = Math.round(count / maxChainCount * 100);
+        const colors = { ETH: '#627eea', SOL: '#9945ff', BSC: '#f0b90b', ARB: '#28a0f0', BASE: '#0052ff', POLY: '#8247e5', AVAX: '#e84142' };
+        const color = colors[chain] || '#888';
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="width:40px;font-size:12px;color:#ccc;text-align:right">${chain}</span>
+          <div style="flex:1;background:#1a1a2e;border-radius:4px;height:22px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;display:flex;align-items:center;padding-left:6px">
+              <span style="font-size:11px;color:#fff;font-weight:600">${count}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+    const attrClusters = (data.correlations?.attributionClusters || []);
+    const dprkCount = attrClusters.filter(c => c.attribution.toLowerCase().includes('dprk') || c.attribution.toLowerCase().includes('lazarus') || c.attribution.toLowerCase().includes('north korea')).reduce((s, c) => s + c.alertCount, 0);
+    const unknownCount = data.totalAlerts - attrClusters.reduce((s, c) => s + c.alertCount, 0);
+    const otherAttrCount = attrClusters.filter(c => {
+      const l = c.attribution.toLowerCase();
+      return !l.includes('dprk') && !l.includes('lazarus') && !l.includes('north korea');
+    }).reduce((s, c) => s + c.alertCount, 0);
+
+    const attrRows = attrClusters.slice(0, 8).map(c => {
+      const isDprk = c.attribution.toLowerCase().includes('dprk') || c.attribution.toLowerCase().includes('lazarus') || c.attribution.toLowerCase().includes('north korea');
+      const tagColor = isDprk ? '#ff4444' : '#666';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #1a1a2e">
+        <span style="font-size:13px;color:#ccc">${c.attribution}</span>
+        <span style="font-size:12px;font-weight:700;color:${tagColor};background:${tagColor}22;padding:2px 8px;border-radius:10px">${c.alertCount}</span>
+      </div>`;
+    }).join('');
+
+    section.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+        <div class="card" style="text-align:center;padding:24px">
+          <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:8px">Total Stolen</div>
+          <div style="font-size:36px;font-weight:800;color:#ff4444;line-height:1">${data.totalStolenFormatted}</div>
+          <div style="font-size:12px;color:#666;margin-top:6px">${data.totalAlerts} alerts tracked</div>
+          <div style="display:flex;justify-content:center;gap:12px;margin-top:12px">
+            <span style="font-size:11px;color:#ff6b6b"><span style="font-weight:700">${data.bySeverity.critical}</span> critical</span>
+            <span style="font-size:11px;color:#ffa500"><span style="font-weight:700">${data.bySeverity.high}</span> high</span>
+            <span style="font-size:11px;color:#f5c542"><span style="font-weight:700">${data.bySeverity.medium}</span> med</span>
+            <span style="font-size:11px;color:#888"><span style="font-weight:700">${data.bySeverity.low}</span> low</span>
+          </div>
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:12px">Alerts by Chain</div>
+          ${chainBars}
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:12px">Attribution</div>
+          ${attrRows || '<div style="color:#666;font-size:13px">No attribution data yet</div>'}
+          <div style="display:flex;gap:12px;margin-top:10px;padding-top:8px;border-top:1px solid #1a1a2e">
+            <span style="font-size:11px;color:#ff4444"><span style="font-weight:700">${dprkCount}</span> DPRK-linked</span>
+            <span style="font-size:11px;color:#666"><span style="font-weight:700">${unknownCount}</span> unattributed</span>
+            <span style="font-size:11px;color:#888"><span style="font-weight:700">${otherAttrCount}</span> other</span>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    section.innerHTML = `<div style="text-align:center;color:#666;padding:12px;font-size:13px">Analytics unavailable: ${err.message}</div>`;
+  }
 }
 
 // ===== SUBMIT ALERT =====
