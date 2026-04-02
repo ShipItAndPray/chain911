@@ -18,7 +18,7 @@ module.exports = async function(req, res) {
 
     const whereClause = where.length ? ' WHERE ' + where.join(' AND ') : '';
     const query = 'SELECT a.*, r.handle as reporter_handle, r.color as reporter_color, r.total_alerts as reporter_total, r.confirmed_alerts as reporter_confirmed, r.false_positives as reporter_fp FROM alerts a LEFT JOIN reporters r ON a.reporter_id = r.id' + whereClause + ' ORDER BY a.created_at DESC';
-    const alerts = await sql(query, params);
+    const alerts = params.length ? await sql.query(query, params) : await sql.query(query);
 
     // Get decisions for each alert
     const decisions = await sql`SELECT * FROM decisions ORDER BY decided_at`;
