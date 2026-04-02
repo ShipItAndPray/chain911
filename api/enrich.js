@@ -47,9 +47,10 @@ function httpPost(url, body, opts = {}) {
   });
 }
 
-// ---- Ethereum enrichment via Etherscan free API ----
+// ---- Ethereum enrichment via public RPC + Etherscan V2 ----
 async function enrichEthereum(address) {
-  const base = 'https://api.etherscan.io/api';
+  const rpc = 'https://ethereum-rpc.publicnode.com';
+  const base = 'https://api.etherscan.io/v2/api';
   const result = {
     address,
     chain: 'ETH',
@@ -64,58 +65,45 @@ async function enrichEthereum(address) {
     error: null
   };
 
-  // Fire all requests in parallel, catch individually so partial data still returns
-  const [balRes, txListRes, codeRes] = await Promise.allSettled([
-    // Balance
-    httpGet(base + '?module=account&action=balance&address=' + address + '&tag=latest'),
-    // Transaction list (first + last, page=1 limited, then last page)
-    httpGet(base + '?module=account&action=txlist&address=' + address + '&startblock=0&endblock=99999999&page=1&offset=1&sort=asc'),
-    // Check if contract (getcode)
-    httpGet(base + '?module=proxy&action=eth_getCode&address=' + address + '&tag=latest')
+  // Fire all requests in parallel via public JSON-RPC
+  const [balRes, txCountRes, codeRes] = await Promise.allSettled([
+    // Balance via public RPC
+    httpPost(rpc, { jsonrpc: '2.0', method: 'eth_getBalance', params: [address, 'latest'], id: 1 }),
+    // Transaction count via public RPC
+    httpPost(rpc, { jsonrpc: '2.0', method: 'eth_getTransactionCount', params: [address, 'latest'], id: 2 }),
+    // Check if contract
+    httpPost(rpc, { jsonrpc: '2.0', method: 'eth_getCode', params: [address, 'latest'], id: 3 })
   ]);
 
   // Balance
-  if (balRes.status === 'fulfilled' && balRes.value && balRes.value.status === '1') {
-    const weiStr = balRes.value.result;
-    result.balance = weiStr;
-    // Convert wei to ETH (avoid BigInt for serverless compat)
-    const wei = parseFloat(weiStr);
+  if (balRes.status === 'fulfilled' && balRes.value && balRes.value.result) {
+    const weiHex = balRes.value.result;
+    const wei = parseInt(weiHex, 16);
+    result.balance = wei.toString();
     result.balanceEth = (wei / 1e18).toFixed(6);
-  } else if (balRes.status === 'fulfilled' && balRes.value) {
-    result.balance = balRes.value.result || null;
   }
 
-  // First transaction
-  if (txListRes.status === 'fulfilled' && txListRes.value && txListRes.value.status === '1' && Array.isArray(txListRes.value.result) && txListRes.value.result.length > 0) {
-    const firstTx = txListRes.value.result[0];
-    result.firstTx = new Date(parseInt(firstTx.timeStamp) * 1000).toISOString();
-
-    // Now get last tx
-    try {
-      const lastRes = await httpGet(base + '?module=account&action=txlist&address=' + address + '&startblock=0&endblock=99999999&page=1&offset=1&sort=desc');
-      if (lastRes && lastRes.status === '1' && Array.isArray(lastRes.result) && lastRes.result.length > 0) {
-        result.lastTx = new Date(parseInt(lastRes.result[0].timeStamp) * 1000).toISOString();
-      }
-    } catch (_) { /* partial data is fine */ }
+  // Transaction count
+  if (txCountRes.status === 'fulfilled' && txCountRes.value && txCountRes.value.result) {
+    result.txCount = parseInt(txCountRes.value.result, 16);
   }
-
-  // Transaction count via eth_getTransactionCount (proxy)
-  try {
-    const txCountRes = await httpGet(base + '?module=proxy&action=eth_getTransactionCount&address=' + address + '&tag=latest');
-    if (txCountRes && txCountRes.result) {
-      result.txCount = parseInt(txCountRes.result, 16);
-    }
-  } catch (_) { /* partial data */ }
 
   // Is contract
   if (codeRes.status === 'fulfilled' && codeRes.value && codeRes.value.result) {
     const code = codeRes.value.result;
     result.isContract = code !== '0x' && code !== '0x0' && code.length > 4;
+    if (result.isContract) result.riskFlags.push('Contract address');
   }
 
-  // Token holdings count (ERC-20 transfers as proxy for unique tokens held)
+  // Risk flags based on data
+  if (result.txCount > 100) result.riskFlags.push('High activity');
+  if (result.balanceEth && parseFloat(result.balanceEth) === 0) result.riskFlags.push('Drained (zero balance)');
+  if (result.balanceEth && parseFloat(result.balanceEth) > 100) result.riskFlags.push('High value holder');
+
+  // Skip Etherscan-dependent lookups (V1 deprecated, V2 needs key)
+  // Token holdings — not available without API key
   try {
-    const tokRes = await httpGet(base + '?module=account&action=tokentx&address=' + address + '&page=1&offset=100&sort=desc');
+    const tokRes = { status: '0', result: [] }; // Placeholder — Etherscan V2 needs key
     if (tokRes && tokRes.status === '1' && Array.isArray(tokRes.result)) {
       const uniqueTokens = new Set(tokRes.result.map(t => t.contractAddress));
       result.tokenHoldings = uniqueTokens.size;
