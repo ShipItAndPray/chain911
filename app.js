@@ -322,6 +322,10 @@ async function renderDashboard() {
       </div>
     </div>
 
+    <div id="analytics-section" style="margin-bottom:24px">
+      <div style="text-align:center;color:#888;padding:20px">Loading analytics...</div>
+    </div>
+
     <div class="filter-bar">
       <input class="form-input" id="dash-search" type="search" placeholder="Search address or description..." style="min-width:240px" />
       <select class="form-select" id="dash-chain"><option value="">All Chains</option>${CHAINS.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
@@ -966,26 +970,59 @@ updateClock();
 // ===== LIVE POLLING =====
 // Poll for new alerts every 30 seconds
 let lastAlertCount = 0;
+let notificationsEnabled = false;
+
+// Request browser notification permission
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission().then(p => { notificationsEnabled = p === 'granted'; });
+} else if ('Notification' in window) {
+  notificationsEnabled = Notification.permission === 'granted';
+}
 
 async function pollForAlerts() {
   try {
     const alerts = await db.getAlerts();
     if (lastAlertCount > 0 && alerts.length > lastAlertCount) {
       const newCount = alerts.length - lastAlertCount;
+      const newest = alerts[0];
       const badge = document.getElementById('alert-badge');
       if (badge) { badge.style.display = 'inline'; badge.textContent = newCount; }
-      toast(`${newCount} new alert(s) received`, 'info');
+      toast(`${newCount} new alert(s) received`, newest?.severity === 'critical' ? 'error' : 'info');
 
+      // Browser notification for critical/high alerts
+      if (notificationsEnabled && newest && (newest.severity === 'critical' || newest.severity === 'high')) {
+        new Notification('chain911 ' + newest.severity.toUpperCase() + ' Alert', {
+          body: newest.description?.slice(0, 120),
+          icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">%F0%9F%9A%A8</text></svg>',
+          tag: 'chain911-' + newest.id,
+        });
+      }
+
+      // Auto-refresh dashboard
       if (window.location.hash.includes('dashboard')) {
         const list = document.getElementById('alert-list');
-        if (list) list.innerHTML = renderAlertList(alerts);
+        if (list) {
+          list.innerHTML = renderAlertList(alerts);
+          const firstCard = list.querySelector('.alert-card');
+          if (firstCard) firstCard.classList.add('new-alert');
+        }
       }
     }
     lastAlertCount = alerts.length;
   } catch (e) { /* silently retry */ }
 }
 
-setInterval(pollForAlerts, 30000);
+setInterval(pollForAlerts, 15000); // Poll every 15s
+
+// ===== KEYBOARD SHORTCUTS =====
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'n') window.location.hash = '#/submit';
+  if (e.key === 'd') window.location.hash = '#/dashboard';
+  if (e.key === 'r') window.location.hash = '#/reporters';
+  if (e.key === 'a') window.location.hash = '#/audit';
+  if (e.key === 's') window.location.hash = '#/settings';
+});
 
 // ===== INIT =====
 
