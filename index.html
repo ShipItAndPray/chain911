@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>chain911 — Crypto Exploit Alert Relay</title>
+    <meta name="description" content="PagerDuty for crypto exploits. Trusted alerts from verified researchers, instant broadcast to protocol teams, structured decision protocol, full audit trail." />
+    <meta property="og:title" content="chain911 — Crypto Exploit Alert Relay" />
+    <meta property="og:description" content="PagerDuty for crypto exploits. Trusted alerts, not compliance theater." />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="demo-banner">
+      <span class="demo-pulse"></span>
+      DEMO MODE — data stored locally
+      <a href="https://github.com/ShipItAndPray/chain911" target="_blank" rel="noreferrer">View on GitHub</a>
+    </div>
+
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">911</div>
+        <div>
+          <div class="brand-name">chain911</div>
+          <div class="brand-sub">exploit alert relay</div>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">OPERATIONS</div>
+        <a href="#/dashboard" class="nav-item" data-route="dashboard">
+          <span class="nav-icon">&#9678;</span>
+          <span>Dashboard</span>
+          <span class="nav-badge" id="alert-badge" style="display:none">0</span>
+        </a>
+        <a href="#/submit" class="nav-item" data-route="submit">
+          <span class="nav-icon">&#9889;</span>
+          <span>Submit Alert</span>
+        </a>
+        <a href="#/reporters" class="nav-item" data-route="reporters">
+          <span class="nav-icon">&#9733;</span>
+          <span>Reporters</span>
+        </a>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">ADMINISTRATION</div>
+        <a href="#/audit" class="nav-item" data-route="audit">
+          <span class="nav-icon">&#9776;</span>
+          <span>Audit Log</span>
+        </a>
+        <a href="#/settings" class="nav-item" data-route="settings">
+          <span class="nav-icon">&#9881;</span>
+          <span>Team Settings</span>
+        </a>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="utc-clock" id="utc-clock"></div>
+        <div class="status-line">
+          <span class="status-dot live"></span>
+          All systems operational
+        </div>
+      </div>
+    </nav>
+
+    <main class="main-content">
+      <div id="app"></div>
+    </main>
+
+    <div id="toast-container"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
