@@ -80,212 +80,116 @@ function generateEnrichment(chain) {
   };
 }
 
-// ===== DATA SERVICE =====
+// ===== DATA SERVICE (API-backed, Neon Postgres) =====
 
 class DataService {
   constructor() {
-    if (!localStorage.getItem('chain911_seeded')) {
-      this.seed();
-      localStorage.setItem('chain911_seeded', 'true');
-    }
+    this._cache = {};
+    this._team = { id: 't3', name: 'SwapKit' };
   }
 
-  _get(key) { return JSON.parse(localStorage.getItem(key) || '[]'); }
-  _set(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
-
-  seed() {
-    const now = Date.now();
-    const alerts = [];
-    const auditLog = [];
-    const decisions = [];
-    const severities = ['critical', 'high', 'high', 'medium', 'medium', 'medium', 'low'];
-
-    for (let i = 0; i < 18; i++) {
-      const reporter = REPORTERS[Math.floor(Math.random() * REPORTERS.length)];
-      const chain = CHAINS[Math.floor(Math.random() * CHAINS.length)];
-      const severity = severities[Math.floor(Math.random() * severities.length)];
-      const createdAt = now - (i * 3600000 * (1 + Math.random() * 2));
-      const addr = randomAddr();
-      const id = 'a' + (1000 + i);
-
-      alerts.push({
-        id,
-        reporterId: reporter.id,
-        address: addr,
-        chain,
-        evidenceUrl: `https://etherscan.io/address/${addr}`,
-        description: generateDescription(),
-        severity,
-        status: i < 3 ? 'active' : i < 8 ? 'investigating' : 'resolved',
-        enrichment: generateEnrichment(chain),
-        createdAt,
-      });
-
-      auditLog.push({
-        id: 'au' + (2000 + i * 3),
-        type: 'alert_created',
-        alertId: id,
-        actor: reporter.handle,
-        details: `Alert submitted: ${severity.toUpperCase()} on ${chain}`,
-        timestamp: createdAt,
-      });
-
-      auditLog.push({
-        id: 'au' + (2001 + i * 3),
-        type: 'enrichment_done',
-        alertId: id,
-        actor: 'system',
-        details: `Auto-enrichment complete for ${addr.slice(0, 10)}...`,
-        timestamp: createdAt + 5000,
-      });
-
-      auditLog.push({
-        id: 'au' + (2002 + i * 3),
-        type: 'webhook_sent',
-        alertId: id,
-        actor: 'system',
-        details: `Dispatched to ${Math.floor(Math.random() * 3) + 3} channels`,
-        timestamp: createdAt + 8000,
-      });
-
-      // Generate decisions for older alerts
-      if (i >= 2) {
-        const actions = ['ack', 'pause', 'ignore'];
-        TEAMS.forEach((team, ti) => {
-          if (Math.random() > 0.25) {
-            const action = i < 5 ? (Math.random() > 0.3 ? 'pause' : 'ack') : actions[Math.floor(Math.random() * actions.length)];
-            decisions.push({
-              id: `d${id}_${team.id}`,
-              alertId: id,
-              teamId: team.id,
-              teamName: team.name,
-              action,
-              reason: '',
-              decidedAt: createdAt + (ti + 1) * 120000 + Math.random() * 300000,
-            });
-
-            auditLog.push({
-              id: `au_d_${id}_${team.id}`,
-              type: 'decision_made',
-              alertId: id,
-              actor: team.name,
-              details: `${action.toUpperCase()} — ${team.name}`,
-              timestamp: createdAt + (ti + 1) * 120000 + Math.random() * 300000,
-            });
-          }
-        });
-      }
-    }
-
-    alerts.sort((a, b) => b.createdAt - a.createdAt);
-    auditLog.sort((a, b) => b.timestamp - a.timestamp);
-
-    this._set('chain911_alerts', alerts);
-    this._set('chain911_audit', auditLog);
-    this._set('chain911_decisions', decisions);
-    this._set('chain911_webhooks', [
-      { id: 'w1', type: 'Slack', url: 'https://hooks.slack.com/services/T0XXX/B0XXX/xxxx', enabled: true },
-      { id: 'w2', type: 'Telegram', url: 'https://api.telegram.org/botXXX/sendMessage', enabled: true },
-      { id: 'w3', type: 'PagerDuty', url: 'https://events.pagerduty.com/v2/enqueue', enabled: true },
-      { id: 'w4', type: 'Email', url: 'security-ops [at] protocol.xyz', enabled: false },
-    ]);
-    this._set('chain911_team', { id: 't3', name: 'SwapKit' });
+  async _fetch(url, opts) {
+    const res = await fetch(url, opts);
+    return res.json();
   }
 
-  getAlerts(filters = {}) {
-    let alerts = this._get('chain911_alerts');
-    if (filters.chain) alerts = alerts.filter(a => a.chain === filters.chain);
-    if (filters.severity) alerts = alerts.filter(a => a.severity === filters.severity);
-    if (filters.status) alerts = alerts.filter(a => a.status === filters.status);
-    if (filters.search) {
-      const s = filters.search.toLowerCase();
-      alerts = alerts.filter(a => a.address.toLowerCase().includes(s) || a.description.toLowerCase().includes(s));
-    }
-    return alerts;
+  async getAlerts(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.chain) params.set('chain', filters.chain);
+    if (filters.severity) params.set('severity', filters.severity);
+    if (filters.status) params.set('status', filters.status);
+    if (filters.search) params.set('search', filters.search);
+    const qs = params.toString();
+    const alerts = await this._fetch('/api/alerts' + (qs ? '?' + qs : ''));
+    // Normalize field names from DB (snake_case) to frontend (camelCase)
+    return alerts.map(a => ({
+      ...a,
+      reporterId: a.reporter_id,
+      evidenceUrl: a.evidence_url,
+      createdAt: new Date(a.created_at).getTime(),
+      attackType: a.attack_type,
+      enrichment: typeof a.enrichment === 'string' ? JSON.parse(a.enrichment) : a.enrichment,
+      decisions: (a.decisions || []).map(d => ({
+        ...d,
+        alertId: d.alert_id,
+        teamId: d.team_id,
+        teamName: d.team_name,
+        decidedAt: new Date(d.decided_at).getTime(),
+      })),
+    }));
   }
 
-  getAlert(id) { return this._get('chain911_alerts').find(a => a.id === id); }
-
-  createAlert(data) {
-    const alerts = this._get('chain911_alerts');
-    const reporter = REPORTERS.find(r => r.id === data.reporterId);
-    const id = 'a' + Date.now();
-    const alert = {
-      id,
-      ...data,
-      enrichment: generateEnrichment(data.chain),
-      status: 'active',
-      createdAt: Date.now(),
-    };
-    alerts.unshift(alert);
-    this._set('chain911_alerts', alerts);
-
-    this.addAuditEntry('alert_created', id, reporter?.handle || 'Unknown', `Alert submitted: ${data.severity.toUpperCase()} on ${data.chain}`);
-    this.addAuditEntry('enrichment_done', id, 'system', `Auto-enrichment complete for ${data.address.slice(0, 10)}...`);
-    this.addAuditEntry('webhook_sent', id, 'system', 'Dispatched to 3 channels');
-
-    return alert;
+  async getAlert(id) {
+    const alerts = await this.getAlerts();
+    return alerts.find(a => a.id === id);
   }
 
-  getDecisions(alertId) {
-    return this._get('chain911_decisions').filter(d => d.alertId === alertId);
-  }
-
-  submitDecision(alertId, teamId, action) {
-    const decisions = this._get('chain911_decisions');
-    const team = TEAMS.find(t => t.id === teamId);
-    const existing = decisions.findIndex(d => d.alertId === alertId && d.teamId === teamId);
-
-    const decision = {
-      id: `d${alertId}_${teamId}`,
-      alertId,
-      teamId,
-      teamName: team?.name || 'Unknown',
-      action,
-      reason: '',
-      decidedAt: Date.now(),
-    };
-
-    if (existing >= 0) decisions[existing] = decision;
-    else decisions.push(decision);
-
-    this._set('chain911_decisions', decisions);
-    this.addAuditEntry('decision_made', alertId, team?.name || 'Unknown', `${action.toUpperCase()} — ${team?.name}`);
-    return decision;
-  }
-
-  getAuditLog(filters = {}) {
-    let log = this._get('chain911_audit');
-    if (filters.type) log = log.filter(e => e.type === filters.type);
-    if (filters.search) {
-      const s = filters.search.toLowerCase();
-      log = log.filter(e => e.details.toLowerCase().includes(s) || e.actor.toLowerCase().includes(s));
-    }
-    return log.sort((a, b) => b.timestamp - a.timestamp);
-  }
-
-  addAuditEntry(type, alertId, actor, details) {
-    const log = this._get('chain911_audit');
-    log.unshift({
-      id: 'au' + Date.now() + Math.random().toString(36).slice(2, 6),
-      type,
-      alertId,
-      actor,
-      details,
-      timestamp: Date.now(),
+  async createAlert(data) {
+    const result = await this._fetch('/api/alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reporter_id: data.reporterId,
+        address: data.address,
+        chain: data.chain,
+        evidence_url: data.evidenceUrl,
+        description: data.description,
+        severity: data.severity,
+      }),
     });
-    this._set('chain911_audit', log);
+    return result;
   }
 
-  getWebhooks() { return this._get('chain911_webhooks'); }
+  async getDecisions(alertId) {
+    const decisions = await this._fetch('/api/decisions?alert_id=' + alertId);
+    return decisions.map(d => ({
+      ...d,
+      alertId: d.alert_id,
+      teamId: d.team_id,
+      teamName: d.team_name,
+      decidedAt: new Date(d.decided_at).getTime(),
+    }));
+  }
 
-  toggleWebhook(id) {
-    const wh = this._get('chain911_webhooks');
+  async submitDecision(alertId, teamId, action) {
+    const team = TEAMS.find(t => t.id === teamId);
+    return this._fetch('/api/decisions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_id: alertId, team_id: teamId, team_name: team?.name, action }),
+    });
+  }
+
+  async getAuditLog(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.type) params.set('type', filters.type);
+    if (filters.search) params.set('search', filters.search);
+    const qs = params.toString();
+    const log = await this._fetch('/api/audit' + (qs ? '?' + qs : ''));
+    return log.map(e => ({
+      ...e,
+      alertId: e.alert_id,
+      timestamp: new Date(e.created_at).getTime(),
+    }));
+  }
+
+  async getWebhooks() {
+    return this._fetch('/api/webhooks');
+  }
+
+  async toggleWebhook(id) {
+    const wh = await this.getWebhooks();
     const hook = wh.find(w => w.id === id);
-    if (hook) { hook.enabled = !hook.enabled; this._set('chain911_webhooks', wh); }
+    if (hook) {
+      return this._fetch('/api/webhooks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, enabled: !hook.enabled }),
+      });
+    }
   }
 
-  getTeam() { return JSON.parse(localStorage.getItem('chain911_team') || '{}'); }
+  getTeam() { return this._team; }
 }
 
 const db = new DataService();
@@ -328,7 +232,7 @@ function copyToClipboard(text) {
 
 // ===== ROUTER =====
 
-function route() {
+async function route() {
   const hash = window.location.hash || '#/dashboard';
   const [path, param] = hash.slice(2).split('/');
 
@@ -337,16 +241,34 @@ function route() {
   });
 
   const app = document.getElementById('app');
+  app.innerHTML = '<div class="empty-state"><p>Loading...</p></div>';
 
-  switch (path) {
-    case 'dashboard': app.innerHTML = renderDashboard(); initDashboard(); break;
-    case 'submit': app.innerHTML = renderSubmit(); initSubmit(); break;
-    case 'alert': app.innerHTML = renderAlertDetail(param); initAlertDetail(param); break;
-    case 'reporters': app.innerHTML = renderReporters(); break;
-    case 'reporter': app.innerHTML = renderReporterDetail(param); break;
-    case 'audit': app.innerHTML = renderAudit(); initAudit(); break;
-    case 'settings': app.innerHTML = renderSettings(); initSettings(); break;
-    default: app.innerHTML = renderDashboard(); initDashboard();
+  try {
+    switch (path) {
+      case 'dashboard': app.innerHTML = await renderDashboard(); initDashboard(); break;
+      case 'submit': app.innerHTML = await renderSubmit(); initSubmit(); break;
+      case 'alert': app.innerHTML = await renderAlertDetail(param); initAlertDetail(param); break;
+      case 'reporters': app.innerHTML = await renderReporters(); break;
+      case 'reporter': app.innerHTML = await renderReporterDetail(param); break;
+      case 'audit': app.innerHTML = await renderAudit(); initAudit(); break;
+      case 'settings': app.innerHTML = await renderSettings(); initSettings(); break;
+      default: app.innerHTML = await renderDashboard(); initDashboard();
+    }
+  } catch (err) {
+    app.innerHTML = `<div class="empty-state"><h3>Error loading data</h3><p>${err.message}</p><p>If this is a fresh deploy, <button class="btn btn-primary" onclick="seedDatabase()">Seed Database</button></p></div>`;
+  }
+}
+
+async function seedDatabase() {
+  const app = document.getElementById('app');
+  app.innerHTML = '<div class="empty-state"><p>Seeding database with real exploit data...</p></div>';
+  try {
+    const res = await fetch('/api/seed', { method: 'POST' });
+    const data = await res.json();
+    toast(data.message || 'Database seeded!', 'success');
+    route();
+  } catch (err) {
+    toast('Seed failed: ' + err.message, 'error');
   }
 }
 
@@ -354,11 +276,11 @@ window.addEventListener('hashchange', route);
 
 // ===== DASHBOARD =====
 
-function renderDashboard() {
-  const alerts = db.getAlerts();
+async function renderDashboard() {
+  const alerts = await db.getAlerts();
   const active = alerts.filter(a => a.status === 'active').length;
   const last24h = alerts.filter(a => Date.now() - a.createdAt < 86400000).length;
-  const decisions = db.getAuditLog({ type: 'decision_made' });
+  const decisions = await db.getAuditLog({ type: 'decision_made' });
   const avgResponseMs = decisions.length > 0 ? decisions.reduce((sum, d) => {
     const alert = db.getAlert(d.alertId);
     return sum + (alert ? d.timestamp - alert.createdAt : 300000);
@@ -412,7 +334,7 @@ function renderAlertList(alerts) {
 
   return alerts.map(a => {
     const reporter = getReporter(a.reporterId);
-    const decisions = db.getDecisions(a.id);
+    const decisions = a.decisions || [];
     const chainClass = a.chain.toLowerCase();
 
     return `
@@ -441,14 +363,14 @@ function renderAlertList(alerts) {
 }
 
 function initDashboard() {
-  const applyFilters = () => {
+  const applyFilters = async () => {
     const filters = {
       search: document.getElementById('dash-search')?.value || '',
       chain: document.getElementById('dash-chain')?.value || '',
       severity: document.getElementById('dash-severity')?.value || '',
       status: document.getElementById('dash-status')?.value || '',
     };
-    const alerts = db.getAlerts(filters);
+    const alerts = await db.getAlerts(filters);
     const list = document.getElementById('alert-list');
     if (list) list.innerHTML = renderAlertList(alerts);
   };
@@ -461,7 +383,7 @@ function initDashboard() {
 
 // ===== SUBMIT ALERT =====
 
-function renderSubmit() {
+async function renderSubmit() {
   return `
     <div class="page-header">
       <h1>Submit Alert</h1>
@@ -520,7 +442,7 @@ function renderSubmit() {
 }
 
 function initSubmit() {
-  document.getElementById('submit-btn')?.addEventListener('click', () => {
+  document.getElementById('submit-btn')?.addEventListener('click', async () => {
     const address = document.getElementById('submit-address').value.trim();
     const chain = document.getElementById('submit-chain').value;
     const evidenceUrl = document.getElementById('submit-evidence').value.trim();
@@ -530,7 +452,7 @@ function initSubmit() {
 
     if (!address || !description) { toast('Address and description required', 'error'); return; }
 
-    const alert = db.createAlert({ reporterId, address, chain, evidenceUrl, description, severity });
+    const alert = await db.createAlert({ reporterId, address, chain, evidenceUrl: evidenceUrl, description, severity });
 
     // Dispatch animation
     const area = document.getElementById('dispatch-area');
@@ -561,12 +483,12 @@ function initSubmit() {
 
 // ===== ALERT DETAIL =====
 
-function renderAlertDetail(id) {
-  const alert = db.getAlert(id);
+async function renderAlertDetail(id) {
+  const alert = await db.getAlert(id);
   if (!alert) return '<div class="empty-state"><h3>Alert not found</h3></div>';
 
-  const reporter = getReporter(alert.reporterId);
-  const decisions = db.getDecisions(id);
+  const reporter = getReporter(alert.reporterId || alert.reporter_id);
+  const decisions = alert.decisions || await db.getDecisions(id);
   const myTeam = db.getTeam();
   const myDecision = decisions.find(d => d.teamId === myTeam.id);
 
@@ -576,7 +498,8 @@ function renderAlertDetail(id) {
   const pendingCount = TEAMS.length - decisions.length;
   const total = TEAMS.length;
 
-  const auditEntries = db.getAuditLog().filter(e => e.alertId === id).slice(0, 20);
+  const fullAudit = await db.getAuditLog();
+  const auditEntries = fullAudit.filter(e => (e.alertId || e.alert_id) === id).slice(0, 20);
 
   return `
     <a href="#/dashboard" class="back-link">\u2190 Back to Dashboard</a>
@@ -717,16 +640,16 @@ function renderAlertDetail(id) {
 
 function initAlertDetail() {}
 
-window.submitTeamDecision = function(alertId, action) {
+window.submitTeamDecision = async function(alertId, action) {
   const team = db.getTeam();
-  db.submitDecision(alertId, team.id, action);
+  await db.submitDecision(alertId, team.id, action);
   toast(`Decision recorded: ${action.toUpperCase()}`, 'success');
   route();
 };
 
 // ===== REPORTERS =====
 
-function renderReporters() {
+async function renderReporters() {
   return `
     <div class="page-header">
       <h1>Verified Reporters</h1>
@@ -764,11 +687,12 @@ function renderReporters() {
   `;
 }
 
-function renderReporterDetail(id) {
+async function renderReporterDetail(id) {
   const r = REPORTERS.find(rr => rr.id === id);
   if (!r) return '<div class="empty-state"><h3>Reporter not found</h3></div>';
 
-  const alerts = db.getAlerts().filter(a => a.reporterId === id);
+  const allAlerts = await db.getAlerts();
+  const alerts = allAlerts.filter(a => (a.reporterId || a.reporter_id) === id);
 
   return `
     <a href="#/reporters" class="back-link">\u2190 Back to Reporters</a>
@@ -798,8 +722,8 @@ function renderReporterDetail(id) {
 
 // ===== AUDIT LOG =====
 
-function renderAudit() {
-  const log = db.getAuditLog();
+async function renderAudit() {
+  const log = await db.getAuditLog();
 
   return `
     <div class="page-header">
@@ -854,12 +778,12 @@ function renderAuditRows(log) {
 }
 
 function initAudit() {
-  const applyFilters = () => {
+  const applyFilters = async () => {
     const filters = {
       search: document.getElementById('audit-search')?.value || '',
       type: document.getElementById('audit-type')?.value || '',
     };
-    const log = db.getAuditLog(filters);
+    const log = await db.getAuditLog(filters);
     const tbody = document.getElementById('audit-tbody');
     if (tbody) tbody.innerHTML = renderAuditRows(log);
   };
@@ -885,9 +809,9 @@ window.exportAuditCSV = function() {
 
 // ===== SETTINGS =====
 
-function renderSettings() {
+async function renderSettings() {
   const team = db.getTeam();
-  const webhooks = db.getWebhooks();
+  const webhooks = await db.getWebhooks();
 
   return `
     <div class="page-header">
@@ -952,10 +876,10 @@ function renderSettings() {
 
 function initSettings() {}
 
-window.toggleWebhook = function(id) {
-  db.toggleWebhook(id);
-  route();
+window.toggleWebhook = async function(id) {
+  await db.toggleWebhook(id);
   toast('Webhook updated', 'success');
+  route();
 };
 
 window.testWebhook = function(type) {
@@ -975,55 +899,29 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// ===== SIMULATED LIVE ALERTS =====
+// ===== LIVE POLLING =====
+// Poll for new alerts every 30 seconds
+let lastAlertCount = 0;
 
-let alertCounter = 0;
+async function pollForAlerts() {
+  try {
+    const alerts = await db.getAlerts();
+    if (lastAlertCount > 0 && alerts.length > lastAlertCount) {
+      const newCount = alerts.length - lastAlertCount;
+      const badge = document.getElementById('alert-badge');
+      if (badge) { badge.style.display = 'inline'; badge.textContent = newCount; }
+      toast(`${newCount} new alert(s) received`, 'info');
 
-function simulateNewAlert() {
-  const reporter = REPORTERS[Math.floor(Math.random() * REPORTERS.length)];
-  const chain = CHAINS[Math.floor(Math.random() * CHAINS.length)];
-  const severities = ['critical', 'high', 'high', 'medium'];
-  const severity = severities[Math.floor(Math.random() * severities.length)];
-
-  db.createAlert({
-    reporterId: reporter.id,
-    address: randomAddr(),
-    chain,
-    evidenceUrl: `https://etherscan.io/address/${randomAddr()}`,
-    description: generateDescription(),
-    severity,
-  });
-
-  alertCounter++;
-  const badge = document.getElementById('alert-badge');
-  if (badge) {
-    badge.style.display = 'inline';
-    badge.textContent = alertCounter;
-  }
-
-  // If on dashboard, refresh alert list
-  const list = document.getElementById('alert-list');
-  if (list && window.location.hash.includes('dashboard')) {
-    const alerts = db.getAlerts();
-    list.innerHTML = renderAlertList(alerts);
-    const firstCard = list.querySelector('.alert-card');
-    if (firstCard) firstCard.classList.add('new-alert');
-  }
-
-  toast(`New ${severity.toUpperCase()} alert from ${reporter.handle}`, severity === 'critical' ? 'error' : 'info');
+      if (window.location.hash.includes('dashboard')) {
+        const list = document.getElementById('alert-list');
+        if (list) list.innerHTML = renderAlertList(alerts);
+      }
+    }
+    lastAlertCount = alerts.length;
+  } catch (e) { /* silently retry */ }
 }
 
-// Simulate a new alert every 30-90 seconds
-function scheduleNextAlert() {
-  const delay = 30000 + Math.random() * 60000;
-  setTimeout(() => {
-    simulateNewAlert();
-    scheduleNextAlert();
-  }, delay);
-}
-
-// Start simulation after 15 seconds
-setTimeout(scheduleNextAlert, 15000);
+setInterval(pollForAlerts, 30000);
 
 // ===== INIT =====
 

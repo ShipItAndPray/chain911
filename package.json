@@ -1,0 +1,25 @@
+{
+  "name": "chain911",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShipItAndPray/chain911.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ShipItAndPray/chain911/issues"
+  },
+  "homepage": "https://github.com/ShipItAndPray/chain911#readme",
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "@vercel/kv": "^3.0.0",
+    "@vercel/postgres": "^0.10.0"
+  }
+}
