@@ -280,12 +280,18 @@ async function renderDashboard() {
   const alerts = await db.getAlerts();
   const active = alerts.filter(a => a.status === 'active').length;
   const last24h = alerts.filter(a => Date.now() - a.createdAt < 86400000).length;
-  const decisions = await db.getAuditLog({ type: 'decision_made' });
-  const avgResponseMs = decisions.length > 0 ? decisions.reduce((sum, d) => {
-    const alert = db.getAlert(d.alertId);
-    return sum + (alert ? d.timestamp - alert.createdAt : 300000);
-  }, 0) / decisions.length : 0;
-  const avgMin = Math.round(avgResponseMs / 60000);
+  const decisionEntries = await db.getAuditLog({ type: 'decision_made' });
+  let avgMin = 0;
+  if (decisionEntries.length > 0 && alerts.length > 0) {
+    const alertMap = {};
+    alerts.forEach(a => { alertMap[a.id] = a.createdAt; });
+    let totalMs = 0, count = 0;
+    decisionEntries.forEach(d => {
+      const alertTime = alertMap[d.alertId || d.alert_id];
+      if (alertTime) { totalMs += d.timestamp - alertTime; count++; }
+    });
+    avgMin = count > 0 ? Math.round(totalMs / count / 60000) : 0;
+  }
 
   return `
     <div class="page-header">
@@ -531,12 +537,12 @@ async function renderAlertDetail(id) {
             <span class="status-pill active">\u2713 Verified</span>
           </div>
           <div class="enrichment-grid">
-            <div class="enrich-item"><div class="enrich-label">Balance</div><div class="enrich-value">${alert.enrichment.balance}</div></div>
-            <div class="enrich-item"><div class="enrich-label">Transactions</div><div class="enrich-value">${alert.enrichment.txCount}</div></div>
+            <div class="enrich-item"><div class="enrich-label">Amount Stolen</div><div class="enrich-value" style="color:var(--accent-red)">${alert.amount || 'Unknown'}</div></div>
+            <div class="enrich-item"><div class="enrich-label">Transactions</div><div class="enrich-value">${alert.enrichment.txCount || 'N/A'}</div></div>
             <div class="enrich-item"><div class="enrich-label">Token Holdings</div><div class="enrich-value">${alert.enrichment.tokenHoldings} tokens</div></div>
             <div class="enrich-item"><div class="enrich-label">Funding Source</div><div class="enrich-value" style="color:${alert.enrichment.fundingSource === 'Tornado Cash' ? 'var(--accent-red)' : 'var(--text-primary)'}">${alert.enrichment.fundingSource}</div></div>
-            <div class="enrich-item"><div class="enrich-label">First Activity</div><div class="enrich-value">${new Date(alert.enrichment.firstTx).toLocaleDateString()}</div></div>
-            <div class="enrich-item"><div class="enrich-label">Last Activity</div><div class="enrich-value">${timeAgo(new Date(alert.enrichment.lastTx).getTime())}</div></div>
+            <div class="enrich-item"><div class="enrich-label">Attack Type</div><div class="enrich-value">${alert.attack_type || alert.attackType || 'Unknown'}</div></div>
+            <div class="enrich-item"><div class="enrich-label">Attribution</div><div class="enrich-value" style="color:${(alert.attribution||'').includes('DPRK') || (alert.attribution||'').includes('Lazarus') ? 'var(--accent-red)' : 'var(--text-primary)'}">${alert.attribution || 'Unknown'}</div></div>
             <div class="enrich-item" style="grid-column:span 2"><div class="enrich-label">Risk Flags</div><div class="enrich-value" style="color:${alert.enrichment.riskFlags[0] === 'None detected' ? 'var(--accent-green)' : 'var(--accent-red)'}">${alert.enrichment.riskFlags.join(', ')}</div></div>
           </div>
         </div>
