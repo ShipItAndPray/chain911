@@ -38,27 +38,31 @@ module.exports = async function(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { reporter_id, address, chain, evidence_url, description, severity } = req.body;
-    if (!address || !description) return res.status(400).json({ error: 'address and description required' });
+    try {
+      const { reporter_id, address, chain, evidence_url, description, severity } = req.body;
+      if (!address || !description) return res.status(400).json({ error: 'address and description required' });
 
-    const id = 'a' + Date.now();
-    const enrichment = JSON.stringify({
-      balance: 'Fetching...', txCount: 0, fundingSource: 'Analyzing...',
-      riskFlags: ['Pending analysis'], tokenHoldings: 0
-    });
+      const id = 'a' + Date.now();
+      const enrichment = JSON.stringify({
+        balance: 'Fetching...', txCount: 0, fundingSource: 'Analyzing...',
+        riskFlags: ['Pending analysis'], tokenHoldings: 0
+      });
 
-    await sql`INSERT INTO alerts (id,reporter_id,address,chain,evidence_url,description,severity,enrichment)
-      VALUES (${id},${reporter_id},${address},${chain},${evidence_url},${description},${severity},${enrichment}::jsonb)`;
+      await sql.query(
+        'INSERT INTO alerts (id,reporter_id,address,chain,evidence_url,description,severity,enrichment) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) ON CONFLICT (id) DO NOTHING',
+        [id, reporter_id, address, chain, evidence_url, description, severity, enrichment]
+      );
 
-    const reporter = await sql`SELECT handle FROM reporters WHERE id=${reporter_id}`;
-    await sql`INSERT INTO audit_log (type,alert_id,actor,details)
-      VALUES ('alert_created',${id},${reporter[0]?.handle||'Unknown'},${severity.toUpperCase()+' on '+chain})`;
-    await sql`INSERT INTO audit_log (type,alert_id,actor,details)
-      VALUES ('enrichment_done',${id},'system','Auto-enrichment complete')`;
-    await sql`INSERT INTO audit_log (type,alert_id,actor,details)
-      VALUES ('webhook_sent',${id},'system','Dispatched to 3 channels')`;
+      const reporter = await sql`SELECT handle FROM reporters WHERE id=${reporter_id}`;
+      const actorName = reporter[0]?.handle || 'Unknown';
+      await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('alert_created',${id},${actorName},${severity.toUpperCase()+' on '+chain})`;
+      await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('enrichment_done',${id},'system','Auto-enrichment complete')`;
+      await sql`INSERT INTO audit_log (type,alert_id,actor,details) VALUES ('webhook_sent',${id},'system','Dispatched to 3 channels')`;
 
-    return res.status(201).json({ id, success: true });
+      return res.status(201).json({ id, success: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   return res.status(405).json({ error: 'Method not allowed' });
